@@ -99,6 +99,115 @@ Data processing is streamlined for instant conversions that are fully **renderin
         --nvdiffrec             Install nvdiffrec
     ```
 
+### Docker 설치 및 실행 가이드
+
+로컬에 Conda 환경을 직접 구성하지 않고 실행하려면 저장소에 포함된 `Dockerfile`과 `docker-compose.yml`을 사용할 수 있습니다. 현재 Docker 구성은 `app.py` 기반의 Gradio 웹 데모 실행을 기준으로 되어 있으며, 컨테이너 시작 후 `7860` 포트로 서비스가 열립니다.
+
+#### 사전 요구사항
+
+- Linux 환경
+- NVIDIA GPU 및 최신 드라이버
+- Docker Engine
+- Docker Compose Plugin (`docker compose`)
+- [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
+- Hugging Face 모델 다운로드를 위한 `HF_TOKEN`
+
+`docker-compose.yml`은 GPU 사용을 전제로 작성되어 있으므로, Docker에서 GPU가 노출되는지 먼저 확인하는 것이 좋습니다.
+
+```sh
+docker run --rm --gpus all nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi
+```
+
+#### 1. 환경 변수 준비
+
+예시 파일을 복사한 뒤 Hugging Face 토큰을 입력합니다.
+
+```sh
+cp .env.example .env
+```
+
+`.env` 파일:
+
+```sh
+HF_TOKEN=hf_your_token_here
+```
+
+`HF_TOKEN`은 `docker-compose.yml`에서 컨테이너 내부의 `HF_TOKEN` 및 `HUGGING_FACE_HUB_TOKEN`으로 전달되며, 최초 실행 시 모델 다운로드에 사용됩니다.
+
+#### 2. Docker 이미지 빌드
+
+```sh
+docker compose build
+```
+
+빌드에는 CUDA, PyTorch, `flash-attn`, `nvdiffrast`, `nvdiffrec`, `CuMesh`, `FlexGEMM`, `o-voxel` 설치가 포함되므로 시간이 오래 걸릴 수 있습니다.
+
+필요하면 직접 이미지 이름을 지정해 빌드할 수도 있습니다.
+
+```sh
+docker build -t trellis2:latest .
+```
+
+#### 3. 웹 데모 실행
+
+```sh
+docker compose up
+```
+
+백그라운드 실행:
+
+```sh
+docker compose up -d
+```
+
+실행 후 브라우저에서 아래 주소로 접속합니다.
+
+```text
+http://localhost:7860
+```
+
+이 Compose 설정은 다음과 같이 동작합니다.
+
+- 컨테이너 이름: `trellis2`
+- 포트 매핑: `7860:7860`
+- Hugging Face 캐시 볼륨 유지: `hf-cache`
+- 임시 결과물 저장용 볼륨: `trellis-tmp`
+- 공유 메모리 크기: `16gb`
+- GPU 전체 사용: `NVIDIA_VISIBLE_DEVICES=all`
+
+#### 4. 자주 쓰는 Docker 명령
+
+로그 확인:
+
+```sh
+docker compose logs -f
+```
+
+중지 및 정리:
+
+```sh
+docker compose down
+```
+
+이미지 재빌드 후 다시 실행:
+
+```sh
+docker compose up -d --build
+```
+
+컨테이너 내부 셸 접속:
+
+```sh
+docker exec -it trellis2 bash
+```
+
+#### 5. 참고 사항
+
+- 첫 실행 시 모델과 관련 의존성을 내려받기 때문에 시작 시간이 길 수 있습니다.
+- `HF_TOKEN`이 없거나 잘못된 경우 Compose 실행 단계에서 오류가 발생합니다.
+- 기본 실행 명령은 `python app.py`이며, 다른 스크립트를 실행하려면 `docker run` 또는 `docker compose run`으로 별도 명령을 지정하면 됩니다.
+- 캐시는 Docker 볼륨에 저장되므로 컨테이너를 다시 만들어도 모델을 다시 받지 않을 수 있습니다.
+
 ## 📦 Pretrained Weights
 
 The pretrained model **TRELLIS.2-4B** is available on Hugging Face. Please refer to the model card there for more details.
