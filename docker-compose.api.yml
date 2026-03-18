@@ -1,0 +1,31 @@
+services:
+  trellis2-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    image: trellis2-api:latest
+    container_name: trellis2-api
+    ports:
+      - "8000:8000"
+    environment:
+      HF_HOME: /root/.cache/huggingface
+      HF_TOKEN: ${HF_TOKEN:?Set HF_TOKEN in .env or the shell environment}
+      HUGGING_FACE_HUB_TOKEN: ${HF_TOKEN:?Set HF_TOKEN in .env or the shell environment}
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+    volumes:
+      - hf-cache:/root/.cache/huggingface
+      - trellis-api-tmp:/app/tmp
+    shm_size: "16gb"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+volumes:
+  hf-cache:
+  trellis-api-tmp:

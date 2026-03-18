@@ -295,6 +295,77 @@ Then, you can access the demo at the address shown in the terminal.
 
 Please refer to the [example_texturing.py](example_texturing.py) for an example of how to generate PBR textures for a given 3D shape. Also, you can use the [app_texturing.py](app_texturing.py) to run a web demo for PBR texture generation.
 
+### 3. API Server
+
+웹 UI 대신 HTTP API로 호출하려면 API 전용 서버를 사용할 수 있습니다. 기존 `app.py`는 그대로 두고, 별도의 `FastAPI` 서버가 이미지 업로드와 비동기 작업 큐를 처리합니다.
+
+#### API 서버 실행
+
+```sh
+docker compose -f docker-compose.api.yml up -d --build
+```
+
+실행 후 API는 아래 주소로 노출됩니다.
+
+```text
+http://localhost:8000
+```
+
+헬스 체크:
+
+```sh
+curl http://localhost:8000/health
+```
+
+#### 이미지 → 3D 작업 생성
+
+이미지 파일과 파라미터 JSON을 함께 전송합니다. `params`를 생략하면 기본값이 사용됩니다.
+
+```sh
+curl -X POST http://localhost:8000/v1/image-to-3d/jobs \
+  -F "image=@assets/example_image/T.png" \
+  -F 'params={
+    "resolution":"1024",
+    "randomize_seed":true,
+    "texture_size":2048,
+    "decimation_target":500000
+  }'
+```
+
+응답 예시:
+
+```json
+{
+  "job_id": "9c7f4d5d8d574d4f9c1f2f20f5560f18",
+  "status": "queued",
+  "status_url": "/v1/jobs/9c7f4d5d8d574d4f9c1f2f20f5560f18",
+  "artifact_url": "/v1/jobs/9c7f4d5d8d574d4f9c1f2f20f5560f18/artifact"
+}
+```
+
+#### 작업 상태 조회
+
+```sh
+curl http://localhost:8000/v1/jobs/<JOB_ID>
+```
+
+작업이 완료되면 `artifact_url`이 응답에 포함됩니다.
+
+#### GLB 다운로드
+
+```sh
+curl -L http://localhost:8000/v1/jobs/<JOB_ID>/artifact -o output.glb
+```
+
+#### 현재 API 범위
+
+- 이미지 → 3D 작업 생성
+- 단일 GPU 기준 직렬 작업 큐
+- 작업 상태 조회
+- 최종 GLB 다운로드
+
+텍스처링 API는 아직 추가하지 않았으며, 현재는 이미지 → 3D 생성 경로만 API로 제공합니다.
+
 
 ## 🏋️ Training
 
