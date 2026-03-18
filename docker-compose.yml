@@ -1,0 +1,35 @@
+services:
+  trellis2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: trellis2:latest
+    container_name: trellis2
+    ports:
+      - "7860:7860"
+    environment:
+      GRADIO_SERVER_NAME: 0.0.0.0
+      GRADIO_SERVER_PORT: "7860"
+      HF_HOME: /root/.cache/huggingface
+      HF_TOKEN: ${HF_TOKEN:?Set HF_TOKEN in .env or the shell environment}
+      HUGGING_FACE_HUB_TOKEN: ${HF_TOKEN:?Set HF_TOKEN in .env or the shell environment}
+      ATTN_BACKEND: flash_attn
+      SPARSE_CONV_BACKEND: flex_gemm
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+    volumes:
+      - hf-cache:/root/.cache/huggingface
+      - trellis-tmp:/app/tmp
+    shm_size: "16gb"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+volumes:
+  hf-cache:
+  trellis-tmp:
