@@ -15,6 +15,55 @@ from trellis2.pipelines import Trellis2TexturingPipeline
 MAX_SEED = np.iinfo(np.int32).max
 TMP_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'tmp')
 
+head = """
+<script>
+    (function () {
+        function supportsClipboardImageRead() {
+            return typeof window !== "undefined"
+                && typeof navigator !== "undefined"
+                && window.isSecureContext
+                && !!navigator.clipboard
+                && typeof navigator.clipboard.read === "function";
+        }
+
+        // Gradio 6.0.1 calls navigator.clipboard.read() without guarding for support.
+        // Provide a no-op fallback so unsupported browsers do not throw an uncaught promise error.
+        if (typeof navigator !== "undefined") {
+            if (!navigator.clipboard) {
+                navigator.clipboard = {};
+            }
+            if (typeof navigator.clipboard.read !== "function") {
+                navigator.clipboard.read = async function () {
+                    console.warn("Clipboard image read is unavailable in this browser or context.");
+                    return [];
+                };
+            }
+        }
+
+        function disableClipboardButtonsIfNeeded() {
+            if (supportsClipboardImageRead()) return;
+            const buttons = Array.from(document.querySelectorAll("button"));
+            buttons.forEach((button) => {
+                const label = [
+                    button.getAttribute("aria-label"),
+                    button.getAttribute("title"),
+                    button.textContent
+                ].join(" ").toLowerCase();
+                if (!label.includes("clipboard") && !label.includes("paste")) return;
+                button.disabled = true;
+                button.title = "Clipboard image paste requires HTTPS or localhost with browser support.";
+            });
+        }
+
+        if (typeof document !== "undefined") {
+            document.addEventListener("DOMContentLoaded", disableClipboardButtonsIfNeeded);
+            const observer = new MutationObserver(disableClipboardButtonsIfNeeded);
+            observer.observe(document.documentElement, { childList: true, subtree: true });
+        }
+    })();
+</script>
+"""
+
 
 def start_session(req: gr.Request):
     user_dir = os.path.join(TMP_DIR, str(req.session_hash))
@@ -148,4 +197,4 @@ if __name__ == "__main__":
     pipeline = Trellis2TexturingPipeline.from_pretrained('microsoft/TRELLIS.2-4B', config_file="texturing_pipeline.json")
     pipeline.cuda()
     
-    demo.launch()
+    demo.launch(head=head)

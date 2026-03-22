@@ -1,8 +1,9 @@
-import gradio as gr
-
 import os
 os.environ['OPENCV_IO_ENABLE_OPENEXR'] = '1'
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+
+import gradio as gr
+
 from datetime import datetime
 import shutil
 import cv2
@@ -12,6 +13,7 @@ import numpy as np
 from PIL import Image
 import base64
 import io
+import time
 from trellis2.modules.sparse import SparseTensor
 from trellis2.pipelines import Trellis2ImageTo3DPipeline
 from trellis2.renderers import EnvMap
@@ -233,6 +235,51 @@ css = """
 
 head = """
 <script>
+    (function () {
+        function supportsClipboardImageRead() {
+            return typeof window !== "undefined"
+                && typeof navigator !== "undefined"
+                && window.isSecureContext
+                && !!navigator.clipboard
+                && typeof navigator.clipboard.read === "function";
+        }
+
+        // Gradio 6.0.1 calls navigator.clipboard.read() without guarding for support.
+        // Provide a no-op fallback so unsupported browsers do not throw an uncaught promise error.
+        if (typeof navigator !== "undefined") {
+            if (!navigator.clipboard) {
+                navigator.clipboard = {};
+            }
+            if (typeof navigator.clipboard.read !== "function") {
+                navigator.clipboard.read = async function () {
+                    console.warn("Clipboard image read is unavailable in this browser or context.");
+                    return [];
+                };
+            }
+        }
+
+        function disableClipboardButtonsIfNeeded() {
+            if (supportsClipboardImageRead()) return;
+            const buttons = Array.from(document.querySelectorAll("button"));
+            buttons.forEach((button) => {
+                const label = [
+                    button.getAttribute("aria-label"),
+                    button.getAttribute("title"),
+                    button.textContent
+                ].join(" ").toLowerCase();
+                if (!label.includes("clipboard") && !label.includes("paste")) return;
+                button.disabled = true;
+                button.title = "Clipboard image paste requires HTTPS or localhost with browser support.";
+            });
+        }
+
+        if (typeof document !== "undefined") {
+            document.addEventListener("DOMContentLoaded", disableClipboardButtonsIfNeeded);
+            const observer = new MutationObserver(disableClipboardButtonsIfNeeded);
+            observer.observe(document.documentElement, { childList: true, subtree: true });
+        }
+    })();
+
     function refreshView(mode, step) {
         // 1. Find current mode and step
         const allImgs = document.querySelectorAll('.previewer-main-image');
@@ -346,6 +393,11 @@ def get_seed(randomize_seed: bool, seed: int) -> int:
     Get the random seed.
     """
     return np.random.randint(0, MAX_SEED) if randomize_seed else seed
+
+
+def log_startup(message: str, start_time: float) -> None:
+    elapsed = time.perf_counter() - start_time
+    print(f"[STARTUP +{elapsed:7.2f}s] {message}", flush=True)
 
 
 def image_to_3d(
@@ -617,16 +669,25 @@ with gr.Blocks(delete_cache=(600, 600)) as demo:
 # Launch the Gradio app
 if __name__ == "__main__":
     os.makedirs(TMP_DIR, exist_ok=True)
+    startup_t0 = time.perf_counter()
+    log_startup("app.py entrypoint", startup_t0)
 
     # Construct ui components
+    log_startup("building UI assets", startup_t0)
     btn_img_base64_strs = {}
     for i in range(len(MODES)):
         icon = Image.open(MODES[i]['icon'])
         MODES[i]['icon_base64'] = image_to_base64(icon)
+    log_startup("UI assets ready", startup_t0)
 
+    log_startup("loading Trellis2ImageTo3DPipeline.from_pretrained()", startup_t0)
     pipeline = Trellis2ImageTo3DPipeline.from_pretrained('microsoft/TRELLIS.2-4B')
+    log_startup("pipeline metadata and weights loaded", startup_t0)
+    log_startup("moving pipeline to CUDA", startup_t0)
     pipeline.cuda()
+    log_startup("pipeline moved to CUDA", startup_t0)
     
+    log_startup("loading environment maps", startup_t0)
     envmap = {
         'forest': EnvMap(torch.tensor(
             cv2.cvtColor(cv2.imread('assets/hdri/forest.exr', cv2.IMREAD_UNCHANGED), cv2.COLOR_BGR2RGB),
@@ -641,5 +702,10 @@ if __name__ == "__main__":
             dtype=torch.float32, device='cuda'
         )),
     }
-    
-    demo.launch(css=css, head=head)
+    log_startup("environment maps ready", startup_t0)
+
+    server_name = os.environ.get("GRADIO_SERVER_NAME", "0.0.0.0")
+    server_port = int(os.environ.get("GRADIO_SERVER_PORT", os.environ.get("PORT", "7860")))
+    log_startup(f"launching Gradio on {server_name}:{server_port}", startup_t0)
+
+    demo.launch(css=css, head=head, server_name=server_name, server_port=server_port)

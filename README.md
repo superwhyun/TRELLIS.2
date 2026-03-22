@@ -165,7 +165,6 @@ docker compose up -d
 ```text
 http://localhost:7860
 ```
-
 Clipboard image paste in the Gradio image input only works in a secure context, which typically means `https` or `localhost`. If you access the demo over plain `http` on a remote IP or hostname, regular file upload still works, but clipboard paste is blocked by the browser.
 
 이 Compose 설정은 다음과 같이 동작합니다.
@@ -292,7 +291,6 @@ python app.py
 ```
 
 Then, you can access the demo at the address shown in the terminal.
-
 Clipboard image paste in the Gradio image input only works in a secure context, which typically means `https` or `localhost`. If you access the demo over plain `http` on a remote IP or hostname, regular file upload still works, but clipboard paste is blocked by the browser.
 
 ### 2. PBR Texture Generation
@@ -321,6 +319,27 @@ http://localhost:8000
 curl http://localhost:8000/health
 ```
 
+응답 예시:
+
+```json
+{
+  "status": "ok",
+  "image_to_3d_model_loaded": true,
+  "queue_size": 0
+}
+```
+
+#### 현재 API 서버 동작 방식
+
+- 서버 시작 시 `image-to-3d` 모델을 미리 로드하고, 백그라운드 작업 스레드를 함께 시작합니다.
+- 생성 요청이 들어오면 업로드 이미지를 즉시 처리하지 않고, 작업 디렉터리를 만든 뒤 큐에 적재합니다.
+- 작업 디렉터리는 `tmp/api_jobs/<JOB_ID>/` 아래에 생성됩니다.
+- 각 작업 디렉터리에는 `input.*`, `request.json`, `status.json`이 먼저 저장되고, 작업 완료 시 `processed.png`, `result.json`, `output.glb`가 추가됩니다.
+- 현재 워커는 1개이므로 작업은 단일 GPU 기준으로 직렬 처리됩니다.
+- 작업 상태는 `queued`, `running`, `completed`, `failed` 중 하나입니다.
+
+즉, API 사용 흐름은 `생성 요청 -> job_id 수신 -> 상태 조회 폴링 -> 완료 후 GLB 다운로드` 순서입니다.
+
 #### 이미지 → 3D 작업 생성
 
 이미지 파일과 파라미터 JSON을 함께 전송합니다. `params`를 생략하면 기본값이 사용됩니다.
@@ -336,6 +355,28 @@ curl -X POST http://localhost:8000/v1/image-to-3d/jobs \
   }'
 ```
 
+요청 형식:
+
+- `Content-Type`: `multipart/form-data`
+- 필수 필드: `image`
+- 선택 필드: `params` (JSON 문자열)
+
+`params`에서 현재 받을 수 있는 주요 값:
+
+- `resolution`: `"512" | "1024" | "1536"`
+- `seed`: `0` 이상 정수
+- `randomize_seed`: `true/false`
+- `decimation_target`: `100000` ~ `1000000`
+- `texture_size`: `1024` ~ `4096`
+- `ss_*`, `shape_slat_*`, `tex_slat_*`: 각 샘플러 세부 파라미터
+
+동작 방식:
+
+- 업로드 파일이 비어 있으면 `400 Image upload is empty`
+- `params`가 JSON 형식이 아니면 `400 Invalid JSON in params`
+- `params` 값 범위나 타입이 잘못되면 `422`
+- 정상 요청이면 서버는 이미지를 `tmp/api_jobs/<JOB_ID>/input.*`로 저장하고, 요청 파라미터를 `request.json`에 기록한 뒤 바로 `queued` 상태를 반환합니다.
+
 응답 예시:
 
 ```json
@@ -347,19 +388,79 @@ curl -X POST http://localhost:8000/v1/image-to-3d/jobs \
 }
 ```
 
+참고:
+
+- 생성 응답의 `artifact_url`은 미리 내려오지만, 실제 파일이 준비되기 전까지 해당 URL은 `404 Artifact is not ready`를 반환합니다.
+- 실제 다운로드 가능 여부는 상태 조회 응답의 `artifact_url` 포함 여부로 확인하는 것이 안전합니다.
+
 #### 작업 상태 조회
 
 ```sh
 curl http://localhost:8000/v1/jobs/<JOB_ID>
 ```
 
-작업이 완료되면 `artifact_url`이 응답에 포함됩니다.
+응답 필드:
+
+- `job_id`
+- `status`
+- `created_at`
+- `started_at`
+- `completed_at`
+- `error`
+- `artifact_url`
+- `result`
+
+상태별 의미:
+
+- `queued`: 큐에 들어갔고 아직 처리 전
+- `running`: 워커가 실제 생성 작업 수행 중
+- `completed`: `output.glb` 생성 완료
+- `failed`: 생성 중 예외 발생, `error` 필드에 메시지 포함
+
+완료 예시:
+
+```json
+{
+  "job_id": "9c7f4d5d8d574d4f9c1f2f20f5560f18",
+  "status": "completed",
+  "created_at": "2026-03-18T03:12:10.123456+00:00",
+  "started_at": "2026-03-18T03:12:11.012345+00:00",
+  "completed_at": "2026-03-18T03:13:42.987654+00:00",
+  "error": null,
+  "artifact_url": "/v1/jobs/9c7f4d5d8d574d4f9c1f2f20f5560f18/artifact",
+  "result": {
+    "seed": 187654321,
+    "resolution": "1024",
+    "glb_filename": "output.glb",
+    "processed_image_filename": "processed.png",
+    "params": {
+      "resolution": "1024",
+      "seed": 0,
+      "randomize_seed": true,
+      "decimation_target": 500000,
+      "texture_size": 2048
+    }
+  }
+}
+```
+
+추가 동작:
+
+- 존재하지 않는 작업 ID는 `404 Job not found`
+- 완료 전에는 `artifact_url`이 `null`
+- 완료 시 `result`에는 실제 사용된 `seed`, 전처리 이미지 파일명, 최종 파라미터가 포함됩니다.
 
 #### GLB 다운로드
 
 ```sh
 curl -L http://localhost:8000/v1/jobs/<JOB_ID>/artifact -o output.glb
 ```
+
+동작 방식:
+
+- 완료된 작업이고 `tmp/api_jobs/<JOB_ID>/output.glb`가 존재하면 GLB 파일을 그대로 내려줍니다.
+- 작업이 아직 끝나지 않았거나 결과 파일이 없으면 `404 Artifact is not ready`
+- 응답 파일명은 기본적으로 `output.glb`입니다.
 
 #### 현재 API 범위
 

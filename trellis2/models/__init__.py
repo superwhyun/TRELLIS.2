@@ -48,6 +48,7 @@ def from_pretrained(path: str, **kwargs):
     import json
     from safetensors.torch import load_file
     is_local = os.path.exists(f"{path}.json") and os.path.exists(f"{path}.safetensors")
+    print(f"[LOAD][model] path={path} is_local={is_local}", flush=True)
 
     if is_local:
         config_file = f"{path}.json"
@@ -57,13 +58,20 @@ def from_pretrained(path: str, **kwargs):
         path_parts = path.split('/')
         repo_id = f'{path_parts[0]}/{path_parts[1]}'
         model_name = '/'.join(path_parts[2:])
+        print(f"[LOAD][model] downloading/resolving config via hf_hub_download: repo={repo_id} file={model_name}.json", flush=True)
         config_file = hf_hub_download(repo_id, f"{model_name}.json")
+        print(f"[LOAD][model] downloading/resolving weights via hf_hub_download: repo={repo_id} file={model_name}.safetensors", flush=True)
         model_file = hf_hub_download(repo_id, f"{model_name}.safetensors")
+    print(f"[LOAD][model] resolved config_file={config_file}", flush=True)
+    print(f"[LOAD][model] resolved model_file={model_file}", flush=True)
 
     with open(config_file, 'r') as f:
         config = json.load(f)
+    print(f"[LOAD][model] instantiating class={config['name']}", flush=True)
     model = __getattr__(config['name'])(**config['args'], **kwargs)
+    print(f"[LOAD][model] loading state_dict from {model_file}", flush=True)
     model.load_state_dict(load_file(model_file), strict=False)
+    print(f"[LOAD][model] loaded class={config['name']}", flush=True)
 
     return model
 

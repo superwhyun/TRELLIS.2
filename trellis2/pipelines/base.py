@@ -26,12 +26,15 @@ class Pipeline:
         import os
         import json
         is_local = os.path.exists(f"{path}/{config_file}")
+        print(f"[LOAD][pipeline] path={path} config={config_file} is_local={is_local}", flush=True)
 
         if is_local:
             config_file = f"{path}/{config_file}"
         else:
             from huggingface_hub import hf_hub_download
+            print(f"[LOAD][pipeline] downloading/resolving config via hf_hub_download: repo={path} file={config_file}", flush=True)
             config_file = hf_hub_download(path, config_file)
+        print(f"[LOAD][pipeline] resolved config_file={config_file}", flush=True)
 
         with open(config_file, 'r') as f:
             args = json.load(f)['args']
@@ -41,8 +44,10 @@ class Pipeline:
             if hasattr(cls, 'model_names_to_load') and k not in cls.model_names_to_load:
                 continue
             try:
+                print(f"[LOAD][pipeline] loading model key={k} path={path}/{v}", flush=True)
                 _models[k] = models.from_pretrained(f"{path}/{v}")
             except Exception as e:
+                print(f"[LOAD][pipeline] fallback loading model key={k} path={v} reason={e}", flush=True)
                 _models[k] = models.from_pretrained(v)
 
         new_pipeline = cls(_models)
