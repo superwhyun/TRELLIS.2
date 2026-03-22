@@ -166,6 +166,8 @@ docker compose up -d
 http://localhost:7860
 ```
 
+Clipboard image paste in the Gradio image input only works in a secure context, which typically means `https` or `localhost`. If you access the demo over plain `http` on a remote IP or hostname, regular file upload still works, but clipboard paste is blocked by the browser.
+
 이 Compose 설정은 다음과 같이 동작합니다.
 
 - 컨테이너 이름: `trellis2`
@@ -290,6 +292,8 @@ python app.py
 ```
 
 Then, you can access the demo at the address shown in the terminal.
+
+Clipboard image paste in the Gradio image input only works in a secure context, which typically means `https` or `localhost`. If you access the demo over plain `http` on a remote IP or hostname, regular file upload still works, but clipboard paste is blocked by the browser.
 
 ### 2. PBR Texture Generation
 
